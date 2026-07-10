@@ -20,3 +20,27 @@ Thumbs.db
 *.log
 dist/
 build/
+
+# Ruflo runtime state
+.claude-flow/agents/
+.claude-flow/data/
+.claude-flow/hooks/
+.claude-flow/learning/
+.claude-flow/logs/
+.claude-flow/metrics/
+.claude-flow/swarm/
+.claude-flow/daemon*
+.claude-flow/*.pid
+.claude-flow/update-state.json
+.claude-flow/harness-*.json
+
+# Ruflo swarm state
+.swarm/
+
+# Ruflo provenance
+.claude/proven-config.json
+.claude/.proven-config-version
+
+# Ruflo store
+.claude-flow/memory-package.json
+.claude-flow/sessions/
