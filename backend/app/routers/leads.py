@@ -7,6 +7,8 @@ import logging
 
 from app.dependencies import DbSession, CurrentUser
 from app.models.lead import Lead
+from app.services.apollo_service import ApolloService, ApolloError
+from app.services.icp_parser import IcpParser, IcpParserError
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -15,6 +17,41 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 # Pydantic schemas
 # ---------------------------------------------------------------------------
+
+class ApolloImportRequest(BaseModel):
+    """Request to import leads from Apollo.io."""
+    api_key: Optional[str] = None
+    icp_description: str
+    max_leads: int = 25
+    save_template: bool = False
+    template_name: Optional[str] = None
+
+
+class ApolloSearchResponse(BaseModel):
+    leads: list[LeadRead]
+    total_found: int
+    imported: int
+    template_id: Optional[int] = None
+    errors: list[str] = []
+
+
+class IcpTemplateCreate(BaseModel):
+    name: str
+    natural_language_query: str
+    structured_icp: Optional[dict] = None
+    apollo_params: Optional[dict] = None
+
+
+class IcpTemplateRead(BaseModel):
+    id: int
+    name: str
+    natural_language_query: str
+    structured_icp: Optional[dict]
+    apollo_params: Optional[dict]
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
 
 class LeadCreate(BaseModel):
     email: EmailStr
@@ -202,3 +239,94 @@ def bulk_import_leads(
 
     db.commit()
     return {"created": created, "skipped": skipped, "total": len(leads)}
+
+
+# ---------------------------------------------------------------------------
+# Apollo.io Import
+# ---------------------------------------------------------------------------
+
+@router.post("/import/apollo", response_model=ApolloSearchResponse)
+async def import_from_apollo(
+    body: ApolloImportRequest,
+    db: DbSession,
+    current_user: CurrentUser,
+):
+    """Import leads from Apollo.io using a natural language ICP description.
+
+    The ICP description is parsed by an LLM into structured search params,
+    then sent to Apollo's API. Matching leads are saved to the database
+    and returned in the response.
+    """
+    errors: list[str] = []
+    try:
+        # Step 1: Parse ICP via LLM
+        parser = IcpParser()
+        parsed = await parser.natural_language_to_apollo_params(
+            body.icp_description
+        )
+        icp = parsed["icp"]
+        apollo_params = parsed["apollo_params"]
+        apollo_params["per_page"] = min(body.max_leads, 100)
+
+        # Step 2: Search Apollo
+        apollo = ApolloService(api_key=body.api_key)
+        leads_data = await apollo.search_people(apollo_params)
+        total_found = len(leads_data)
+
+        # Step 3: Save to database
+        imported = 0
+        saved_leads = []
+        for lead_data in leads_data[: body.max_leads]:
+            existing = db.query(Lead).filter(
+                Lead.owner_id == current_user.id,
+                Lead.email == lead_data["email"],
+            ).first()
+            if existing:
+                skipped += 1
+                continue
+
+            lead = Lead(
+                owner_id=current_user.id,
+                first_name=lead_data.get("first_name", ""),
+                last_name=lead_data.get("last_name", ""),
+                email=lead_data.get("email", ""),
+                company=lead_data.get("company", ""),
+                title=lead_data.get("title", ""),
+                linkedin_url=lead_data.get("linkedin_url", ""),
+                phone=lead_data.get("phone", ""),
+                source="apollo",
+                prospect_signals=lead_data.get("prospect_signals", {}),
+                status="new",
+            )
+            db.add(lead)
+            imported += 1
+        db.commit()
+
+        # Step 4: Save ICP template if requested
+        template_id = None
+        if body.save_template:
+            from app.models.icp_template import IcpTemplate
+            template = IcpTemplate(
+                user_id=current_user.id,
+                name=body.template_name or body.icp_description[:50],
+                natural_language_query=body.icp_description,
+                structured_icp=icp,
+                apollo_params=apollo_params,
+            )
+            db.add(template)
+            db.commit()
+            db.refresh(template)
+            template_id = template.id
+
+        return ApolloSearchResponse(
+            leads=saved_leads,
+            total_found=total_found,
+            imported=imported,
+            template_id=template_id,
+            errors=errors,
+        )
+
+    except IcpParserError as e:
+        raise HTTPException(status_code=422, detail=f"ICP parsing failed: {str(e)}")
+    except ApolloError as e:
+        raise HTTPException(status_code=502, detail=f"Apollo API error: {str(e)}")
