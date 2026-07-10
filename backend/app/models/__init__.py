@@ -5,6 +5,7 @@ from app.models.campaign import Campaign  # noqa: F401
 from app.models.campaign_event import CampaignEvent  # noqa: F401
 from app.models.email_account import EmailAccount  # noqa: F401
 from app.models.crm_connection import CRMConnection  # noqa: F401
+from app.models.icp_template import IcpTemplate  # noqa: F401
 
 __all__ = [
     "User",
@@ -13,4 +14,5 @@ __all__ = [
     "CampaignEvent",
     "EmailAccount",
     "CRMConnection",
+    "IcpTemplate",
 ]
