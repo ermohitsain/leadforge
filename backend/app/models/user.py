@@ -41,6 +41,9 @@ class User(Base):
     crm_connections: Mapped[list["CRMConnection"]] = relationship(  # noqa: F821
         "CRMConnection", back_populates="owner", cascade="all, delete-orphan"
     )
+    icp_templates: Mapped[list["IcpTemplate"]] = relationship(  # noqa: F821
+        "IcpTemplate", back_populates="user", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"<User id={self.id} email={self.email!r}>"
