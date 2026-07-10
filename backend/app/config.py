@@ -35,6 +35,14 @@ class Settings(BaseSettings):
     temporal_namespace: str = "default"
     temporal_task_queue: str = "leadforge-queue"
 
+    # API Keys
+    apollo_api_key: Optional[str] = None
+    openrouter_api_key: Optional[str] = None
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    deepseek_model: str = "deepseek-chat"
+    zerobounce_api_key: Optional[str] = None
+    zerobounce_base_url: str = "https://api.zerobounce.net/v2"
+
     # Email / SMTP (optional defaults)
     smtp_host: Optional[str] = None
     smtp_port: int = 587
